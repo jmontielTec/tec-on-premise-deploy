@@ -1,4 +1,4 @@
-name: 'onpremise-deploy-test'
+name: 'On-Premise Deploy'
 description: 'Support commands for the publishing process.'
 author: Alma Vidals & Jorge Montiel
 branding:
@@ -17,17 +17,17 @@ inputs:
     default: ''
 
   WIREGUARD_PUBLIC_KEY_ENDPOINT:
-    description: 'Llave publica VPN del servior Endpoint'
+    description: 'Llave publica VPN del servidor Endpoint'
     required: true
     default: '' 
 
   WIREGUARD_ALLOWED_IPS:
-    description: 'Cadena de IPs permitidad'
+    description: 'Cadena de IPs permitidas'
     required: true
     default: '' 
 
   PUBLIC_IP_AND_PORT_VPN_ENDPOINT:
-    description: 'IP publica y puerto para la conexion a la VPN del Endpoint'
+    description: 'IP publica y puerto para la conexión a la VPN del Endpoint'
     required: true
     default: ''
      
@@ -67,7 +67,7 @@ inputs:
     default: ''
 
   PATH_DOWNLOADED:
-    description: 'Ruta del rirectorio de descarga'
+    description: 'Ruta del directorio de descarga'
     required: true
 
   PATH_APP_ENDPOINT:
