@@ -1,0 +1,174 @@
+name: 'onpremise-deploy-test'
+description: 'Support commands for the publishing process.'
+author: Alma Vidals & Jorge Montiel
+branding:
+   icon: 'paperclip'
+   color: 'blue'
+inputs: 
+
+  HOST_IP_VPN_WIREGURD_GITHUB:
+    description: 'IP privada VPN asignada a Github'
+    required: true
+    default: ''
+
+  WIREGUARD_PRIVATE_KEY_GITHUB:
+    description: 'Llave privada asignada a la VPN de Github'
+    required: true
+    default: ''
+
+  WIREGUARD_PUBLIC_KEY_ENDPOINT:
+    description: 'Llave publica VPN del servior Endpoint'
+    required: true
+    default: '' 
+
+  WIREGUARD_ALLOWED_IPS:
+    description: 'Cadena de IPs permitidad'
+    required: true
+    default: '' 
+
+  PUBLIC_IP_AND_PORT_VPN_ENDPOINT:
+    description: 'IP publica y puerto para la conexion a la VPN del Endpoint'
+    required: true
+    default: ''
+     
+  SSH_PORT:
+    description: 'Puerto SSH'
+    required: true
+    default: ''
+
+  SSH_PRIVATE_KEY:
+    description: 'Llave privada del servidor destino'
+    required: true
+    default: ''
+      
+  SSH_USERNAME:
+    description: 'Nombre del usuario del SSH'
+    required: true
+    default: ''
+
+  SSH_HOST_IP_VPN_WIREGUARD_ENDPOINT:
+    description: 'IP privada del servidor Endpoint sin mascara'
+    required: true
+    default: ''
+
+  SSH_HOST_IP_DESTINATION_SERVER:
+    description: 'IP del servidor destino (PPRD o PROD)'
+    required: true
+    default: ''
+
+  SSH_USERNAME_DESTINATION_SERVER:
+    description: 'Nombre de usuario del servidor destino (PPRD o PROD)'
+    required: true
+    default: ''
+    
+  PROJECT_NAME_IIS:
+    description: 'Nombre del proyecto (mismo de la carpeta en el servidor) y directorio de publicado'
+    required: true
+    default: ''
+
+  PATH_DOWNLOADED:
+    description: 'Ruta del rirectorio de descarga'
+    required: true
+
+  PATH_APP_ENDPOINT:
+    description: 'Ruta del directorio del servidor EndPoint'
+    required: true
+
+  RECURSIVELY_COPY:
+    description: 'Copie de forma recursiva directorios de origen completos. Valores válidos: verdadero y falso'
+    required: true
+    default: 'true'
+
+  DEBUG_FILES:
+    description: 'Habilitar el debug de archivos de descarga y servidor Endpoint'
+    required: false
+    default: 'false'
+ 
+outputs:
+  IS_SUCCESS:
+    description: 'Estado del proceso'
+    value: ${{ steps.commands.outputs.success }}
+
+runs:
+    using: 'composite'
+    steps: 
+      - name: Download Artifact 
+        uses: actions/download-artifact@v3
+        with:
+            name: published_${{github.event.repository.name}}
+            path: ${{ github.event.repository.name}}
+            
+      - name: Check publish files
+        if: inputs.DEBUG_FILES == 'true'
+        shell: pwsh
+        run: |
+            ls -lath
+            cd ${{inputs.PATH_DOWNLOADED}}  
+            ls -lath  
+            cd ${{ github.event.repository.name}}
+            ls -lath
+              
+
+      - name: Install wireguard & VPN commands
+        shell: bash
+        run: |
+            sudo apt install wireguard
+            sudo touch /etc/wireguard/wg0.conf
+            sudo echo '[Interface]' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo 'Address = ${{ inputs.HOST_IP_VPN_WIREGURD_GITHUB}}' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo 'ListenPort = 43123' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo 'PrivateKey = ${{ inputs.WIREGUARD_PRIVATE_KEY_GITHUB}}' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo '[Peer]' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo 'PublicKey = ${{ inputs.WIREGUARD_PUBLIC_KEY_ENDPOINT}}' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo 'AllowedIPs = ${{ inputs.WIREGUARD_ALLOWED_IPS}}' | sudo tee -a /etc/wireguard/wg0.conf
+            sudo echo 'Endpoint = ${{ inputs.PUBLIC_IP_AND_PORT_VPN_ENDPOINT}}' | sudo tee -a /etc/wireguard/wg0.conf 
+            sudo systemctl start wg-quick@wg0
+            sudo ip link set up dev wg0
+
+      - name: Send deploy
+        uses: betanzos/scp-upload@v1
+        with:
+            source: '${{inputs.PATH_DOWNLOADED}}${{ github.event.repository.name}}'
+            host: '${{ inputs.SSH_HOST_IP_VPN_WIREGUARD_ENDPOINT }}'
+            port: ${{ inputs.SSH_PORT }}
+            username:  ${{ inputs.SSH_USERNAME }}
+            key: ${{ inputs.SSH_PRIVATE_KEY }}
+            remote_dir: '${{inputs.PATH_APP_ENDPOINT}}'
+            recursive:  '${{inputs.RECURSIVELY_COPY}}'
+            
+      - name: Check deploy
+        if: inputs.DEBUG_FILES == 'true'
+        uses: alinz/ssh-scp-action@master
+        with:
+            key: ${{ inputs.SSH_PRIVATE_KEY }}
+            host: ${{ inputs.SSH_HOST_IP_VPN_WIREGUARD_ENDPOINT }}
+            port: ${{inputs.SSH_PORT}}
+            user: ${{ inputs.SSH_USERNAME}}
+            ssh_before: |
+              ls -lath
+              cd ${{github.event.repository.name}}
+              ls -lath
+
+      - name: executing remote ssh commands using ssh
+        uses: appleboy/ssh-action@master
+        with:
+            host: '${{ inputs.SSH_HOST_IP_VPN_WIREGUARD_ENDPOINT}}'
+            username: '${{ inputs.SSH_USERNAME}}'
+            key: '${{ inputs.SSH_PRIVATE_KEY}}'
+            port: '${{ inputs.SSH_PORT}}'
+            script: |
+                ssh-keyscan -H ${{ inputs.SSH_HOST_IP_DESTINATION_SERVER}} >> ~/.ssh/known_hosts
+                ssh '${{ inputs.SSH_USERNAME_DESTINATION_SERVER}}'@'${{ inputs.SSH_HOST_IP_DESTINATION_SERVER}}' 'rd /s /q ${{inputs.PROJECT_NAME_IIS}}'
+                ssh '${{ inputs.SSH_USERNAME_DESTINATION_SERVER}}'@'${{ inputs.SSH_HOST_IP_DESTINATION_SERVER}}' 'mkdir ${{inputs.PROJECT_NAME_IIS}}'
+                scp -r ${{inputs.PATH_APP_ENDPOINT}}${{github.event.repository.name}}/* '${{ inputs.SSH_USERNAME_DESTINATION_SERVER}}'@'${{ inputs.SSH_HOST_IP_DESTINATION_SERVER}}':${{inputs.PROJECT_NAME_IIS}}
+                ls -lath
+                cd ${{inputs.PATH_APP_ENDPOINT}}
+                ls -lath
+                rm -r ${{github.event.repository.name}} 
+                ls -lath
+                
+      - name: Output
+        id: commands
+        shell: bash
+        run: |  
+          echo "success=true" >> $GITHUB_OUTPUT
